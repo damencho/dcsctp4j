@@ -1,0 +1,101 @@
+# Builds the native libraries against a shallow WebRTC checkout and runs the tests,
+# on Linux (x86-64, arm64 and ppc64le libraries) and on macOS (x86-64 and arm64).
+
+name: Build and test
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: 17
+  MAVEN_ARGS: -B
+  WEBRTC_SHALLOW: true
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      # The shallow WebRTC checkout with its toolchain and sysroots needs about 15 GB.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Build native libraries
+        run: resources/ubuntu-build-all.sh "$RUNNER_TEMP/depot_tools" "$RUNNER_TEMP/WebRTC"
+
+      - name: Build and test with Maven
+        run: mvn verify
+
+      - name: Disk usage
+        if: always()
+        run: df -h /
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: surefire-reports-linux
+          path: target/surefire-reports/
+
+  macos:
+    name: macOS
+    runs-on: macos-15
+    timeout-minutes: 180
+
+    steps:
+      - name: Disk space
+        run: df -h /
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Build native libraries
+        run: resources/macos-build-all.sh "$RUNNER_TEMP/depot_tools" "$RUNNER_TEMP/WebRTC"
+
+      - name: Build and test with Maven
+        run: mvn verify
+
+      - name: Disk usage
+        if: always()
+        run: df -h /
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: surefire-reports-macos
+          path: target/surefire-reports/
